@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Teachable Machine 外向きカメラテスト</title>
+<style>
+  body { font-family: sans-serif; text-align: center; margin: 20px; }
+  video { width: min(90vw, 480px); max-height: 70vh; background: #111; }
+  button { font-size: 18px; padding: 12px 20px; margin: 10px; }
+  #status { white-space: pre-wrap; text-align: left; max-width: 600px; margin: 15px auto; }
+  #label-container { max-width: 600px; margin: auto; text-align: left; }
+  .result { margin: 6px 0; font-size: 18px; }
+</style>
+</head>
+<body>
+<h1>外向きカメラ＋Teachable Machine</h1>
+<p>「開始」を押してください。外向きカメラを直接指定します。</p>
+<button id="start">開始</button>
+<button id="stop" disabled>停止</button>
+<div id="status">待機中</div>
+<video id="video" autoplay playsinline muted></video>
+<div id="label-container"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8.3/dist/teachablemachine-image.min.js"></script>
+
+<script>
+const MODEL_URL = "https://teachablemachine.withgoogle.com/models/a-pvzvICk/";
+let model = null;
+let stream = null;
+let running = false;
+
+const video = document.getElementById("video");
+const status = document.getElementById("status");
+const labels = document.getElementById("label-container");
+
+function setStatus(s) {
+  status.textContent = s;
+}
+
+async function start() {
+  document.getElementById("start").disabled = true;
+  try {
+    setStatus("モデルを読み込んでいます…");
+    model = await tmImage.load(MODEL_URL + "model.json", MODEL_URL + "metadata.json");
+
+    setStatus("外向きカメラを取得しています…");
+
+    // 外向きカメラを直接指定
+    const constraints = {
+      video: {
+        facingMode: { ideal: "environment" },
+        width: { ideal: 640 },
+        height: { ideal: 480 }
+      },
+      audio: false
+    };
+
+    stream = await navigator.mediaDevices.getUserMedia(constraints);
+    video.srcObject = stream;
+
+    await video.play();
+
+    const actualTrack = stream.getVideoTracks()[0];
+    const settings = actualTrack.getSettings();
+
+    setStatus(
+      "成功！外向きカメラを取得しました。\n" +
+      "カメラ: " + (settings.label || "外向きカメラ") +
+      "\n解像度: " + (settings.width || "?") + " × " + (settings.height || "?")
+    );
+
+    labels.innerHTML = "";
+    running = true;
+    document.getElementById("stop").disabled = false;
+    predictLoop();
+
+  } catch (e) {
+    console.error(e);
+    setStatus(
+      "カメラの取得に失敗しました。\n\n" +
+      "エラー: " + (e.name || "不明") + "\n" +
+      (e.message || e)
+    );
+    document.getElementById("start").disabled = false;
+  }
+}
+
+async function predictLoop() {
+  if (!running) return;
+
+  try {
+    const prediction = await model.predict(video);
+
+    labels.innerHTML = "";
+    for (const p of prediction) {
+      const div = document.createElement("div");
+      div.className = "result";
+      div.textContent = p.className + " : " + (p.probability * 100).toFixed(1) + "%";
+      labels.appendChild(div);
+    }
+  } catch (e) {
+    console.error(e);
+  }
+
+  requestAnimationFrame(predictLoop);
+}
+
+function stop() {
+  running = false;
+  if (stream) {
+    stream.getTracks().forEach(track => track.stop());
+    stream = null;
+  }
+  video.srcObject = null;
+  document.getElementById("start").disabled = false;
+  document.getElementById("stop").disabled = true;
+  setStatus("停止しました。");
+}
+
+document.getElementById("start").addEventListener("click", start);
+document.getElementById("stop").addEventListener("click", stop);
+</script>
+</body>
+</html>
